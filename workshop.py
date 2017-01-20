@@ -10,7 +10,7 @@ import pandas as pd
 import geopandas as gpd
 from geopandas.tools import sjoin
 from datetime import datetime as dt
-from shapely.geometry import LineString
+from shapely.geometry import Point, LineString
 from shapely.geometry.polygon import Polygon
 
 
@@ -28,64 +28,50 @@ def findIntersects(geoDF):
             cons.append(t)
     return cons
     
+def compareGeoms(geoDF):
+    one = geoDF.index[0]
+    two = geoDF.index[1]
+    a = makeArray(geoDF.ix[one])
+    b = makeArray(geoDF.ix[two])
+    dtype={'names':['f{}'.format(i) for i in range(ncols)],
+                    'formats':ncols * [a.dtype]}
+    c = np.intersect1d(a.view(dtype), b.view(dtype))
+    c = c.view(a.dtype).reshape(-1, ncols)
+    if len(c) == 1:
+        pt = gpd.GeoSeries(Point(map(tuple,c)))
+        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=pt)
+    if len(c) > 1:
+        line = gpd.GeoSeries(LineString(list(map(tuple,c))))
+        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=line)
     
-def findIntersects(geoDF):
-    one = geoDF.copy()
-    two = geoDF.copy()
-    on = sjoin(one,two)
-    t = on[['COMID_left','COMID_right']]
-    return t.ix[t.COMID_left != t.COMID_right]
-#    keepers = np.unique(t.ix[t.COMID_left != t.COMID_right])
-#    return geoDF.ix[geoDF.COMID.isin(keepers)]
-
-def makeSeries(scanDF):
-    xys = pd.Series()
-    for idx, rec in scanDF.iterrows():
-        break
-        if type(rec.geometry) == type(Polygon()):
-            xys = xys.append(pd.Series({idx :np.array(rec.geometry.exterior.coords)[:,:2]}))
-        else:
-            poly = []
-            for pol in rec.geometry:
-                poly.append(pol)
-            arr = np.empty([0,2])
-            for bnds in range(len(poly)):
-               arr = np.concatenate([arr,np.array(poly[bnds].exterior.coords)[:,:2]])
-            xys = xys.append(pd.Series({idx :arr}))
-    return xys
     
-def compareGeoms(xys, keep):   
-    i = xys.index[0]
-    a = xys[i]
-    for j in xys.index.drop(i):
-        break
-        b = xys[j]
-        jx = []
-        for row in b:
-            uni = np.where((a == row).all(axis=1))
-            if len(uni[0]) > 0:
-                print uni
-                jx.append(uni[0][0])
-        jx.sort()
-        if len(a[jx]) > 1:  # add in point if len == 1
-            line = gpd.GeoSeries(LineString(list(map(tuple,a[jx]))))
-            gdf = gpd.GeoDataFrame({'idx1':[i],'idx2':[j]},geometry=line).reindex()
-            keep = keep.append(gdf, ignore_index=True)
-    if len(xys.index.drop(i)) > 1:
-        return compareGeoms(xys.drop(i), keep)
-    else:
-        return keep
-
+[tuple(row) for row in np.vstack({tuple(row) for row in xys}) if row in a]
+[tuple(row) for row in np.vstack({tuple(row) for row in xys}) if row in b]
 
 a = np.around(np.array(scanDF.ix[scanDF.index[0]].geometry.exterior.coords)[:,:2],decimals=7)
 b = np.around(np.array(scanDF.ix[scanDF.index[1]].geometry.exterior.coords)[:,:2],decimals=7)
 [tuple(row) for row in np.vstack({tuple(row) for row in a}) if row in b]
 for idx, rec in six.iterrows():
     print makeArray(rec)
-
+    
+f = open(r'D:\Projects\temp\LakeBoundaryMatch\output_%s' %two,'w')
+for rec in b:
+    f.write(str(rec) + '\n')
+f.close()
+for rec in a:
+    for row in b:
+        if (rec == row).all():
+            print rec
+puke = gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=pt).geometry
+type(gdf.ix[gdf.index[0]].geometry)
+type(puke.ix[puke.index[0]])
+type(Point())
+a[a == b]
 def makeArray(ser):
     if type(ser.geometry) == type(Polygon()):
-        return np.around(np.array(ser.geometry.exterior.coords)[:,:2],decimals=7)
+        arr = np.array(ser.geometry.exterior.coords)[:,:2]
+        if len(ser.geometry.interiors) > 0:
+            arr = np.concatenate([arr,addInteriors(ser,arr)])
     else:
         poly = []
         for pol in ser.geometry:
@@ -93,28 +79,16 @@ def makeArray(ser):
         arr = np.empty([0,2])
         for bnds in range(len(poly)):
             arr = np.concatenate([arr,np.array(poly[bnds].exterior.coords)[:,:2]])
-        return np.around(arr,decimals=7)
-        
-        
-         
+    return np.around(arr,decimals=7)
 
-for row in np.vstack({tuple(row) for row in a}):
-    if row in np.vstack({tuple(row) for row in b}):
-        jx.append(row)
-#            if any((a[:]==row).all(1)) == True:
-#                print any((a[:]==row).all(1))
-#                jx.append(row)
-#            if row in a.tolist():
-#                print row in a.tolist()    
-c = pd.DataFrame(b, columns=list('xy'))
-d = pd.DataFrame(a, columns=list('xy'))
-cols = d.columns.tolist()
-pd.merge(a[cols], b, on=cols, how='outer', indicator=True)
-
-f = open(r'D:\Projects\temp\LakeBoundaryMatch\output2.txt','w')
-for row in b:
-    f.write(str(row) +'\n')
-f.close()
+def addInteriors(ser, arr):
+    poly = []
+    for pol in ser.geometry.interiors:
+        poly.append(pol)
+    arr = np.empty([0,2])
+    for bnds in range(len(poly)):
+        arr = np.concatenate([arr,np.array(poly[bnds].coords)[:,:2]])
+    return arr    
         
 NHD_dir = 'D:/NHDPlusV21'
 inputs = np.load('%s/StreamCat_npy/zoneInputs.npy' % NHD_dir).item()
@@ -127,15 +101,18 @@ for zone in inputs:
     sr = six.crs
     six = six.ix[six.FTYPE.isin(['LakePond','Reservoir'])]
     reduced = findIntersects(six)
-    keep = gpd.GeoDataFrame()
+    keep_line = gpd.GeoDataFrame()
+    keep_point = gpd.GeoDataFrame()
     start = dt.now()    
-    for match in reduced[:]:
-        break
-        z = makeSeries(six.ix[six.COMID.isin(match)].set_index('COMID'))
-        hold2 = compareGeoms(z,keep)
+    for match in reduced:
+        gdf = compareGeoms(six.ix[six.COMID.isin(match)].set_index('COMID'))
+        if type(gdf.ix[gdf.index[0]].geometry) == type(Point()):
+            keep_point = keep_point.append(gdf, ignore_index=True)
+        if type(gdf.ix[gdf.index[0]].geometry) == type(LineString()):
+            keep_line = keep_line.append(gdf, ignore_index=True)
     print dt.now()-start
-    hold2.crs = sr
-    hold2.to_file(r'D:\Projects\temp\LakeBoundaryMatch\LinesTest_%s.shp' % zone)
+    keep_line.crs = sr
+    keep_line.to_file(r'D:\Projects\temp\LakeBoundaryMatch\LinesTestes_%s.shp' % zone)
 print dt.now() - tot   
 ###############################################################################
 # NOTES
