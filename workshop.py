@@ -27,46 +27,16 @@ def findIntersects(geoDF):
         if not t in cons and not f in cons:
             cons.append(t)
     return cons
-    
-def compareGeoms(geoDF):
-    one = geoDF.index[0]
-    two = geoDF.index[1]
-    a = makeArray(geoDF.ix[one])
-    b = makeArray(geoDF.ix[two])
-    dtype={'names':['f{}'.format(i) for i in range(ncols)],
-                    'formats':ncols * [a.dtype]}
-    c = np.intersect1d(a.view(dtype), b.view(dtype))
-    c = c.view(a.dtype).reshape(-1, ncols)
-    if len(c) == 1:
-        pt = gpd.GeoSeries(Point(map(tuple,c)))
-        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=pt)
-    if len(c) > 1:
-        line = gpd.GeoSeries(LineString(list(map(tuple,c))))
-        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=line)
-    
-    
-[tuple(row) for row in np.vstack({tuple(row) for row in xys}) if row in a]
-[tuple(row) for row in np.vstack({tuple(row) for row in xys}) if row in b]
 
-a = np.around(np.array(scanDF.ix[scanDF.index[0]].geometry.exterior.coords)[:,:2],decimals=7)
-b = np.around(np.array(scanDF.ix[scanDF.index[1]].geometry.exterior.coords)[:,:2],decimals=7)
-[tuple(row) for row in np.vstack({tuple(row) for row in a}) if row in b]
-for idx, rec in six.iterrows():
-    print makeArray(rec)
+def addInteriors(ser, arr):
+    poly = []
+    for pol in ser.geometry.interiors:
+        poly.append(pol)
+    arr = np.empty([0,2])
+    for bnds in range(len(poly)):
+        arr = np.concatenate([arr,np.array(poly[bnds].coords)[:,:2]])
+    return arr    
     
-f = open(r'D:\Projects\temp\LakeBoundaryMatch\output_%s' %two,'w')
-for rec in b:
-    f.write(str(rec) + '\n')
-f.close()
-for rec in a:
-    for row in b:
-        if (rec == row).all():
-            print rec
-puke = gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=pt).geometry
-type(gdf.ix[gdf.index[0]].geometry)
-type(puke.ix[puke.index[0]])
-type(Point())
-a[a == b]
 def makeArray(ser):
     if type(ser.geometry) == type(Polygon()):
         arr = np.array(ser.geometry.exterior.coords)[:,:2]
@@ -79,22 +49,81 @@ def makeArray(ser):
         arr = np.empty([0,2])
         for bnds in range(len(poly)):
             arr = np.concatenate([arr,np.array(poly[bnds].exterior.coords)[:,:2]])
-    return np.around(arr,decimals=7)
+    return np.around(arr,decimals=10)
+    
+def compareGeoms(geoDF):
+    one = geoDF.index[0]
+    two = geoDF.index[1]
+    a = makeArray(geoDF.ix[one])
+    b = makeArray(geoDF.ix[two])
+    nrows, ncols = a.shape
+    dtype={'names':['f{}'.format(i) for i in range(ncols)],
+                    'formats':ncols * [a.dtype]}
+    c = np.intersect1d(a.view(dtype), b.view(dtype))
+    c = c.view(a.dtype).reshape(-1, ncols)
+    if len(c) == 1:
+        pt = gpd.GeoSeries(Point(map(tuple,c)))
+        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=pt)
+    if len(c) > 1:
+        line = gpd.GeoSeries(LineString(list(map(tuple,c))))
+        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=line)
+lt = [] 
+for x in c:
+  lt.append(zip(*np.where(a == x))[0][0])
+lt.sort()
+a[lt[0]:lt[-1]+1]
 
-def addInteriors(ser, arr):
-    poly = []
-    for pol in ser.geometry.interiors:
-        poly.append(pol)
-    arr = np.empty([0,2])
-    for bnds in range(len(poly)):
-        arr = np.concatenate([arr,np.array(poly[bnds].coords)[:,:2]])
-    return arr    
-        
+
+
+
+def compareGeoms(geoDF):
+    one = geoDF.index[0]
+    two = geoDF.index[1]
+    a = makeArray(geoDF.ix[one])
+    b = makeArray(geoDF.ix[two])
+    nrows, ncols = a.shape
+    dtype={'names':['f{}'.format(i) for i in range(ncols)],
+                    'formats':ncols * [a.dtype]}
+    d = np.intersect1d(a.view(dtype), b.view(dtype))
+    d = d.view(a.dtype).reshape(-1, ncols)
+    lt = [] 
+    for x in d:
+        g = zip(*np.where(b == x))
+        for t in g:
+            if t[1] == 1:
+                lt.append(t[0])       
+    #lt.sort()
+    c = b[lt]
+    if len(c) == 1:
+        pt = gpd.GeoSeries(Point(map(tuple,c)))
+        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=pt)
+    if len(c) > 1:
+        line = gpd.GeoSeries(LineString(list(map(tuple,c))))
+        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=line)
+
+hache = zip(*np.where(b == now))
+for t in hache:
+    if t[1] == 1:
+        print t[0]
+hache = zip(*np.where(b == now1))
+
+np.where(b == x).all()
+zip(*np.where(b[:][0] == x[0] and b[:][1] == x[1]).all())[0][0]))a[np.isclose(a,b)]
+9041-23
+add = np.zeros((len(a)-len(b),2))
+b = np.concatenate([add,b])
+
+
+for x in d:
+    print zip(*np.where(arr == x))[0][0]
+    print zip(*np.where(arr2 == x))[0][0]    
+
+       
 NHD_dir = 'D:/NHDPlusV21'
 inputs = np.load('%s/StreamCat_npy/zoneInputs.npy' % NHD_dir).item()
 tot = dt.now()        
 for zone in inputs:
-    
+    zone = '06'
     print zone
     hr = inputs[zone]
     six = gpd.read_file(r'%s\NHDPlus%s\NHDPlus%s\NHDSnapshot\Hydrography\NHDWaterbody.shp' % (NHD_dir, hr, zone))
@@ -112,7 +141,9 @@ for zone in inputs:
             keep_line = keep_line.append(gdf, ignore_index=True)
     print dt.now()-start
     keep_line.crs = sr
-    keep_line.to_file(r'D:\Projects\temp\LakeBoundaryMatch\LinesTestes_%s.shp' % zone)
+    keep_point.crs = sr
+    keep_line.to_file(r'D:\Projects\temp\LakeBoundaryMatch\LinesTestes6_%s.shp' % zone)
+    keep_point.to_file(r'D:\Projects\temp\LakeBoundaryMatch\PointsTestes6_%s.shp' % zone)
 print dt.now() - tot   
 ###############################################################################
 # NOTES
