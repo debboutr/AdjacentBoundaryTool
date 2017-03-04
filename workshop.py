@@ -6,15 +6,13 @@ Created on Tue Jan 10 13:31:13 2017
 """
 
 import numpy as np
-import pandas as pd
 import geopandas as gpd
 from geopandas.tools import sjoin
 from datetime import datetime as dt
-from shapely.geometry import Point, LineString
-from shapely.geometry.polygon import Polygon
-
+from shapely.geometry import MultiPoint, polygon
 
 def findIntersects(geoDF):
+    geoDF.columns = geoDF.columns[:-1].str.upper().tolist() + [geoDF.columns[-1]]
     one = geoDF.copy()
     two = geoDF.copy()
     on = sjoin(one,two)[['COMID_left','COMID_right']].reset_index()
@@ -28,20 +26,20 @@ def findIntersects(geoDF):
             cons.append(t)
     return cons
 
-def addInteriors(ser, arr):
-    poly = []
-    for pol in ser.geometry.interiors:
-        poly.append(pol)
+def addInteriors(coords, arr):
+    p = []
+    for pol in coords:
+        p.append(pol)
     arr = np.empty([0,2])
-    for bnds in range(len(poly)):
-        arr = np.concatenate([arr,np.array(poly[bnds].coords)[:,:2]])
+    for bnds in range(len(p)):
+        arr = np.concatenate([arr,np.array(p[bnds].coords)[:,:2]])
     return arr    
     
 def makeArray(ser):
-    if type(ser.geometry) == type(Polygon()):
+    if type(ser.geometry) == type(polygon.Polygon()):
         arr = np.array(ser.geometry.exterior.coords)[:,:2]
         if len(ser.geometry.interiors) > 0:
-            arr = np.concatenate([arr,addInteriors(ser,arr)])
+            arr = np.concatenate([arr,addInteriors(ser.geometry.interiors,arr)])
     else:
         poly = []
         for pol in ser.geometry:
@@ -49,9 +47,13 @@ def makeArray(ser):
         arr = np.empty([0,2])
         for bnds in range(len(poly)):
             arr = np.concatenate([arr,np.array(poly[bnds].exterior.coords)[:,:2]])
+            if len(poly[bnds].interiors) > 0:
+                arr = np.concatenate([arr,addInteriors(poly[bnds].interiors,arr)])
     return np.around(arr,decimals=10)
     
 def compareGeoms(geoDF):
+    ftypes = geoDF.FTYPE.sort_values().tolist()
+    iface = ftypes[0] + '/' + ftypes[1]
     one = geoDF.index[0]
     two = geoDF.index[1]
     a = makeArray(geoDF.ix[one])
@@ -61,91 +63,68 @@ def compareGeoms(geoDF):
                     'formats':ncols * [a.dtype]}
     c = np.intersect1d(a.view(dtype), b.view(dtype))
     c = c.view(a.dtype).reshape(-1, ncols)
-    if len(c) == 1:
-        pt = gpd.GeoSeries(Point(map(tuple,c)))
-        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=pt)
-    if len(c) > 1:
-        line = gpd.GeoSeries(LineString(list(map(tuple,c))))
-        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=line)
-lt = [] 
-for x in c:
-  lt.append(zip(*np.where(a == x))[0][0])
-lt.sort()
-a[lt[0]:lt[-1]+1]
+    if len(c) == 0: # there are no intersecting points, look for line intersects
+        a = geoDF.ix[one].geometry.exterior
+        b = geoDF.ix[two].geometry.exterior
+        c = np.array(a.intersection(b))        
+    if len(c) == 0: # interiors cross
+        a = geoDF.ix[one].geometry
+        b = geoDF.ix[two].geometry
+        if a.area > b.area:
+            for geom in a.interiors:
+                if len(b.exterior.intersection(geom)) > 0:
+                    c = np.array(b.exterior.intersection(geom))            
+        else:
+            for geom in b.interiors:
+                if len(a.exterior.intersection(geom)) > 0:
+                    c = np.array(a.exterior.intersection(geom))
+    if len(c) == 0: #overlapping poly completely inside the other
+        a = geoDF.ix[one].geometry
+        b = geoDF.ix[two].geometry
+        if a.area > b.area:
+            c = np.array(b.exterior.coords)[:,:2]
+        else:
+            c = np.array(a.exterior.coords)[:,:2]            
+    pts = gpd.GeoSeries(MultiPoint(list(map(tuple,c))))
+    return gpd.GeoDataFrame({'comid1':[one],'comid2':[two], 'iface':[iface], 
+                             '#points':[len(c)]},geometry=pts)   
 
-
-
-
-def compareGeoms(geoDF):
-    one = geoDF.index[0]
-    two = geoDF.index[1]
-    a = makeArray(geoDF.ix[one])
-    b = makeArray(geoDF.ix[two])
-    nrows, ncols = a.shape
-    dtype={'names':['f{}'.format(i) for i in range(ncols)],
-                    'formats':ncols * [a.dtype]}
-    d = np.intersect1d(a.view(dtype), b.view(dtype))
-    d = d.view(a.dtype).reshape(-1, ncols)
-    lt = [] 
-    for x in d:
-        g = zip(*np.where(b == x))
-        for t in g:
-            if t[1] == 1:
-                lt.append(t[0])       
-    #lt.sort()
-    c = b[lt]
-    if len(c) == 1:
-        pt = gpd.GeoSeries(Point(map(tuple,c)))
-        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=pt)
-    if len(c) > 1:
-        line = gpd.GeoSeries(LineString(list(map(tuple,c))))
-        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=line)
-
-hache = zip(*np.where(b == now))
-for t in hache:
-    if t[1] == 1:
-        print t[0]
-hache = zip(*np.where(b == now1))
-
-np.where(b == x).all()
-zip(*np.where(b[:][0] == x[0] and b[:][1] == x[1]).all())[0][0]))a[np.isclose(a,b)]
-9041-23
-add = np.zeros((len(a)-len(b),2))
-b = np.concatenate([add,b])
-
-
-for x in d:
-    print zip(*np.where(arr == x))[0][0]
-    print zip(*np.where(arr2 == x))[0][0]    
-
-       
-NHD_dir = 'D:/NHDPlusV21'
-inputs = np.load('%s/StreamCat_npy/zoneInputs.npy' % NHD_dir).item()
-tot = dt.now()        
-for zone in inputs:
-    zone = '06'
-    print zone
-    hr = inputs[zone]
-    six = gpd.read_file(r'%s\NHDPlus%s\NHDPlus%s\NHDSnapshot\Hydrography\NHDWaterbody.shp' % (NHD_dir, hr, zone))
-    sr = six.crs
-    six = six.ix[six.FTYPE.isin(['LakePond','Reservoir'])]
-    reduced = findIntersects(six)
-    keep_line = gpd.GeoDataFrame()
-    keep_point = gpd.GeoDataFrame()
-    start = dt.now()    
-    for match in reduced:
-        gdf = compareGeoms(six.ix[six.COMID.isin(match)].set_index('COMID'))
-        if type(gdf.ix[gdf.index[0]].geometry) == type(Point()):
-            keep_point = keep_point.append(gdf, ignore_index=True)
-        if type(gdf.ix[gdf.index[0]].geometry) == type(LineString()):
-            keep_line = keep_line.append(gdf, ignore_index=True)
-    print dt.now()-start
-    keep_line.crs = sr
-    keep_point.crs = sr
-    keep_line.to_file(r'D:\Projects\temp\LakeBoundaryMatch\LinesTestes6_%s.shp' % zone)
-    keep_point.to_file(r'D:\Projects\temp\LakeBoundaryMatch\PointsTestes6_%s.shp' % zone)
-print dt.now() - tot   
 ###############################################################################
+if __name__ == '__main__':
+      
+    NHD_dir = 'D:/NHDPlusV21'
+    inputs = np.load('%s/StreamCat_npy/zoneInputs.npy' % NHD_dir).item()
+    tot = dt.now()
+    final =  gpd.GeoDataFrame()       
+    for zone in inputs:
+        print zone
+        start = dt.now()
+        hr = inputs[zone]
+        six = gpd.read_file(r'%s\NHDPlus%s\NHDPlus%s\NHDSnapshot\Hydrography\NHDWaterbody.shp' % (NHD_dir, hr, zone))
+        sr = six.crs
+        six = six.ix[six.FTYPE.isin(['LakePond','Reservoir'])]
+        reduced = findIntersects(six)
+        keep = gpd.GeoDataFrame()
+        for match in reduced:
+            gdf = compareGeoms(six.ix[six.COMID.isin(match)].set_index('COMID'))
+            keep = keep.append(gdf, ignore_index=True)
+        print dt.now()-start
+        keep.crs = sr
+        keep['VPU'] = zone
+        final = final.append(keep, ignore_index=True)
+    final.to_file(r'D:\Projects\temp\LakeBoundaryMatch\TOTAL2.shp')
+    print dt.now() - tot 
+
+###############################################################################
+#count = 0
+#for idx, x in final.iterrows():
+#    #print type(x.geometry)
+##    if not type(x.geometry[0]) == type(MultiPoint()):
+##        print idx
+#    if len(x.geometry) == 0:
+#        print idx
+#        count += 1
+
 # NOTES
 #  sometimes swamp/marsh overlaps completely with lakePond - same poly/diff COMID
 #  
@@ -280,3 +259,35 @@ print dt.now() - tot
 #        return tch
 #
 #keepers = findTouching(g, touching)
+##########################################################################
+# b4 move to multiPoint()
+#def compareGeoms(geoDF):
+#    one = geoDF.index[0]
+#    two = geoDF.index[1]
+#    a = makeArray(geoDF.ix[one])
+#    b = makeArray(geoDF.ix[two])
+#    nrows, ncols = a.shape
+#    dtype={'names':['f{}'.format(i) for i in range(ncols)],
+#                    'formats':ncols * [a.dtype]}
+#    d = np.intersect1d(a.view(dtype), b.view(dtype))
+#    d = d.view(a.dtype).reshape(-1, ncols)
+#    lt = [] 
+#    for x in d:
+#        g = zip(*np.where(b == x))
+#        for t in g:
+#            if t[1] == 1:
+#                lt.append(t[0])       
+#    #lt.sort()
+#    c = b[lt]
+#    if len(c) == 1:
+#        pt = gpd.GeoSeries(MultiPoint(map(tuple,c)))
+#        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=pt)
+#    if len(c) > 1:
+#        line = gpd.GeoSeries(MultiPoint(list(map(tuple,c))))
+#        return gpd.GeoDataFrame({'idx1':[one],'idx2':[two]},geometry=line)
+#
+#hache = zip(*np.where(b == now))
+#for t in hache:
+#    if t[1] == 1:
+#        print t[0]
+#hache = zip(*np.where(b == now1))
