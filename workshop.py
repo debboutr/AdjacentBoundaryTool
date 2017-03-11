@@ -9,61 +9,41 @@ import numpy as np
 import geopandas as gpd
 from geopandas.tools import sjoin
 from datetime import datetime as dt
-from shapely.geometry import MultiPoint, polygon
+from shapely.geometry import MultiPoint, polygon, mapping
 
 def findIntersects(geoDF):
     geoDF.columns = geoDF.columns[:-1].str.upper().tolist() + [geoDF.columns[-1]]
-    one = geoDF.copy()
-    two = geoDF.copy()
-    on = sjoin(one,two)[['COMID_left','COMID_right']].reset_index()
-    on = on.ix[on.COMID_left != on.COMID_right]
-    cons = []
-    for i in on.index:
-        r = on.ix[i]
-        t = [r.COMID_left, r.COMID_right]
-        f = [r.COMID_right, r.COMID_left]
-        if not t in cons and not f in cons:
-            cons.append(t)
-    return cons
+    copy = geoDF.copy()
+    intrsct = sjoin(geoDF,copy)[['COMID_left','COMID_right']].reset_index(drop=True)
+    intrsct = intrsct.ix[intrsct.COMID_left != intrsct.COMID_right]
+    mask = intrsct['COMID_left'] < intrsct['COMID_right']
+    intrsct['first'] = intrsct['COMID_left'].where(mask, intrsct['COMID_right'])
+    intrsct['second'] = intrsct['COMID_right'].where(mask, intrsct['COMID_left'])
+    intrsct = intrsct.drop_duplicates(subset=['first', 'second'])
+    return intrsct[['COMID_left', 'COMID_right']]
 
-def addInteriors(coords, arr):
-    p = []
-    for pol in coords:
-        p.append(pol)
-    arr = np.empty([0,2])
-    for bnds in range(len(p)):
-        arr = np.concatenate([arr,np.array(p[bnds].coords)[:,:2]])
-    return arr    
-    
-def makeArray(ser):
-    if type(ser.geometry) == type(polygon.Polygon()):
-        arr = np.array(ser.geometry.exterior.coords)[:,:2]
-        if len(ser.geometry.interiors) > 0:
-            arr = np.concatenate([arr,addInteriors(ser.geometry.interiors,arr)])
-    else:
-        poly = []
-        for pol in ser.geometry:
-            poly.append(pol)
-        arr = np.empty([0,2])
-        for bnds in range(len(poly)):
-            arr = np.concatenate([arr,np.array(poly[bnds].exterior.coords)[:,:2]])
-            if len(poly[bnds].interiors) > 0:
-                arr = np.concatenate([arr,addInteriors(poly[bnds].interiors,arr)])
+def makeArray(ser): # there is opportunity here to make this type of function work inside of geopandas, not shapely
+    d = mapping(ser.geometry)
+    if d['type'] == 'Polygon':
+        xys = [i[:2] for u in d['coordinates'] for i in u]
+    if d['type'] == 'MultiPolygon':        
+        xys = [i[:2] for u in d['coordinates'] for p in u for i in p]
+    arr = np.array(xys)
     return np.around(arr,decimals=10)
     
 def compareGeoms(geoDF):
-    ftypes = geoDF.FTYPE.sort_values().tolist()
-    iface = ftypes[0] + '/' + ftypes[1]
-    one = geoDF.index[0]
-    two = geoDF.index[1]
+    iface = "/".join(geoDF.FTYPE.sort_values().tolist())
+    one, two = geoDF.index
     a = makeArray(geoDF.ix[one])
     b = makeArray(geoDF.ix[two])
     nrows, ncols = a.shape
-    dtype={'names':['f{}'.format(i) for i in range(ncols)],
+    dtype = {'names':['f{}'.format(i) for i in range(ncols)],
                     'formats':ncols * [a.dtype]}
     c = np.intersect1d(a.view(dtype), b.view(dtype))
     c = c.view(a.dtype).reshape(-1, ncols)
     if len(c) == 0: # there are no intersecting points, look for line intersects
+        print one
+        print two
         a = geoDF.ix[one].geometry.exterior
         b = geoDF.ix[two].geometry.exterior
         c = np.array(a.intersection(b))        
@@ -78,14 +58,14 @@ def compareGeoms(geoDF):
             for geom in b.interiors:
                 if len(a.exterior.intersection(geom)) > 0:
                     c = np.array(a.exterior.intersection(geom))
-    if len(c) == 0: #overlapping poly completely inside the other
+    if len(c) == 0: # overlapping poly completely inside the other
         a = geoDF.ix[one].geometry
         b = geoDF.ix[two].geometry
         if a.area > b.area:
             c = np.array(b.exterior.coords)[:,:2]
         else:
             c = np.array(a.exterior.coords)[:,:2]            
-    pts = gpd.GeoSeries(MultiPoint(list(map(tuple,c))))
+    pts = gpd.GeoSeries(MultiPoint(map(tuple,c)))
     return gpd.GeoDataFrame({'comid1':[one],'comid2':[two], 'iface':[iface], 
                              '#points':[len(c)]},geometry=pts)   
 
@@ -95,18 +75,18 @@ if __name__ == '__main__':
     NHD_dir = 'D:/NHDPlusV21'
     inputs = np.load('%s/StreamCat_npy/zoneInputs.npy' % NHD_dir).item()
     tot = dt.now()
-    final =  gpd.GeoDataFrame()       
+    final =  gpd.GeoDataFrame()  
     for zone in inputs:
         print zone
         start = dt.now()
         hr = inputs[zone]
-        six = gpd.read_file(r'%s\NHDPlus%s\NHDPlus%s\NHDSnapshot\Hydrography\NHDWaterbody.shp' % (NHD_dir, hr, zone))
-        sr = six.crs
-        six = six.ix[six.FTYPE.isin(['LakePond','Reservoir'])]
-        reduced = findIntersects(six)
+        wbs = gpd.read_file(r'%s\NHDPlus%s\NHDPlus%s\NHDSnapshot\Hydrography\NHDWaterbody.shp' % (NHD_dir, hr, zone))
+        sr = wbs.crs
+        wbs = wbs.ix[wbs.FTYPE.isin(['LakePond','Reservoir'])]
+        reduced = findIntersects(wbs)
         keep = gpd.GeoDataFrame()
-        for match in reduced:
-            gdf = compareGeoms(six.ix[six.COMID.isin(match)].set_index('COMID'))
+        for idx, match in reduced.iterrows():
+            gdf = compareGeoms(wbs.ix[wbs.COMID.isin(match)].set_index('COMID'))
             keep = keep.append(gdf, ignore_index=True)
         print dt.now()-start
         keep.crs = sr
@@ -114,6 +94,71 @@ if __name__ == '__main__':
         final = final.append(keep, ignore_index=True)
     final.to_file(r'D:\Projects\temp\LakeBoundaryMatch\TOTAL2.shp')
     print dt.now() - tot 
+
+
+
+
+###############################################################################
+
+#tits = mapping(ser.geometry)
+## THIS WORKS! for exteriors && interiors!!!!
+#len([it[:2] for tit in tits['coordinates'] for it in tit])
+## This works for MultiPolgons!!!!
+#len([it[:2] for tit in tits['coordinates'] for pop in tit for it in pop])
+#
+#
+#
+#for idx, match in reduced.iterrows():
+#    for uid in match:
+#        chk = wbs.ix[wbs.COMID.isin([uid])].set_index('COMID')
+#        if not type(chk.iloc[0].geometry) == type(polygon.Polygon()):
+#            print uid
+#geoDF = wbs.ix[wbs.COMID.isin([166997583,166997626])].set_index('COMID')
+#one = geoDF.index
+#ser = geoDF.ix[one]
+#type(ser.geometry.iloc[0]) == type(polygon.Polygon())
+#tits = mapping(ser.geometry)
+#
+## different approach for MultiPolygon!!
+#tits.keys()
+#tits['type']
+#tits['bbox']
+#feats = tits['features']
+#len(tits)
+#len(feats)
+#type(feats[0])
+#tits[0]
+#
+#tits['features']['geometry']
+#
+#tits['geometry']
+#feats[0].keys()
+#feats[0]['type']
+#feats[0]['id']
+#feats[0]['bbox']
+#feats[0]['properties']
+#feats[0]['geometry'].keys()
+#feats[0]['geometry']['type']
+#feats[0]['geometry']['coordinates']
+#len([it[:2] for tit in feats[0]['geometry']['coordinates'] for pop in tit for it in pop])
+#
+## maybe just this
+#len([it[:2] for tit in tits['coordinates'] for pop in tit for it in pop])
+#
+#
+#def compareGeoms2(geoDF):
+#    one, two = geoDF.index
+#    a = makeArray(geoDF.ix[one])
+#    b = makeArray(geoDF.ix[two])
+#    print 'length A orig: %s' % str(len(a))
+#    print 'length B orig: %s' % str(len(b))
+#    a = makeArray2(geoDF.ix[one])
+#    b = makeArray2(geoDF.ix[two])
+#    print 'length A new: %s' % str(len(a))
+#    print 'length B new: %s' % str(len(b))
+#    
+#for idx, match in reduced.iterrows():    
+#    compareGeoms2(wbs.ix[wbs.COMID.isin(match)].set_index('COMID'))
 
 ###############################################################################
 #count = 0
@@ -219,7 +264,7 @@ if __name__ == '__main__':
 #hold2.to_file(r'D:\Projects\temp\LakeBoundaryMatch\Guntersville_06.shp')
 ##############################################################################
 #xys = pd.Series()
-#for idx, rec in six.iterrows():
+#for idx, rec in wbs.iterrows():
 #    xys = xys.append(pd.Series({idx :np.array(rec.geometry.exterior.coords)[:,:2]}))
 #    
 #
