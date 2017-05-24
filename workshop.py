@@ -11,16 +11,16 @@ from geopandas.tools import sjoin
 from datetime import datetime as dt
 from shapely.geometry import MultiPoint, polygon, mapping
 
-def findIntersects(geoDF):
+def findIntersects(geoDF, col='COMID'):
     geoDF.columns = geoDF.columns[:-1].str.upper().tolist() + [geoDF.columns[-1]]
     copy = geoDF.copy()
-    intrsct = sjoin(geoDF,copy)[['COMID_left','COMID_right']].reset_index(drop=True)
-    intrsct = intrsct.ix[intrsct.COMID_left != intrsct.COMID_right]
-    mask = intrsct['COMID_left'] < intrsct['COMID_right']
-    intrsct['first'] = intrsct['COMID_left'].where(mask, intrsct['COMID_right'])
-    intrsct['second'] = intrsct['COMID_right'].where(mask, intrsct['COMID_left'])
+    intrsct = sjoin(geoDF,copy)[[col+'_left',col+'_right']].reset_index(drop=True)
+    intrsct = intrsct.ix[intrsct[col+'_left'] != intrsct[col+'_right']]
+    mask = intrsct[col+'_left'] < intrsct[col+'_right']
+    intrsct['first'] = intrsct[col+'_left'].where(mask, intrsct[col+'_right'])
+    intrsct['second'] = intrsct[col+'_right'].where(mask, intrsct[col+'_left'])
     intrsct = intrsct.drop_duplicates(subset=['first', 'second'])
-    return intrsct[['COMID_left', 'COMID_right']]
+    return intrsct[[col+'_left', col+'_right']]
 
 def makeArray(ser): # there is opportunity here to make this type of function work inside of geopandas, not shapely
     d = mapping(ser.geometry)
