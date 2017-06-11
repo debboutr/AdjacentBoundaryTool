@@ -16,11 +16,7 @@ def findIntersects(geoDF, col='COMID'):
     copy = geoDF.copy()
     intrsct = sjoin(geoDF,copy)[[col+'_left',col+'_right']].reset_index(drop=True)
     intrsct = intrsct.ix[intrsct[col+'_left'] != intrsct[col+'_right']]
-    mask = intrsct[col+'_left'] < intrsct[col+'_right']
-    intrsct['first'] = intrsct[col+'_left'].where(mask, intrsct[col+'_right'])
-    intrsct['second'] = intrsct[col+'_right'].where(mask, intrsct[col+'_left'])
-    intrsct = intrsct.drop_duplicates(subset=['first', 'second'])
-    return intrsct[[col+'_left', col+'_right']]
+    return intrsct.apply(sorted, axis=1).drop_duplicates()
 
 def makeArray(ser): # there is opportunity here to make this type of function work inside of geopandas, not shapely
     d = mapping(ser.geometry)
